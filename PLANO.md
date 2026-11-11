@@ -246,7 +246,7 @@ Cada fase termina com o validador rodando contra os processos recém-iniciados. 
 Legenda: `#N` = verificação do validador · `(manual)` = conferida no fluxo do avaliador.
 
 ### Preparação
-- [ ] Fork criado, `origin` apontando para o fork, trabalho na `main`
+- [x] Fork criado (https://github.com/jeancsbnu/desafio-a2a-com-mcp), `origin` apontando para o fork e `upstream` para o starter, trabalho na `main`
 - [x] `servidor-mcp/pyproject.toml` e `agente/pyproject.toml` com versões travadas (`==`) e `uv.lock`
 - [x] Nenhuma dependência de SDK de LLM em nenhum `pyproject.toml`
 - [x] `REQUEST_STATE_SECRET` lido do ambiente, sem fallback hardcoded. O processo falha ao subir sem ele ou com menos de 32 bytes
@@ -331,4 +331,5 @@ Legenda: `#N` = verificação do validador · `(manual)` = conferida no fluxo do
 - [x] Limitações reais do SDK documentadas com evidência, se houver
 - [x] `python3 validador/validar.py --agente http://localhost:7300 --mcp http://localhost:7301` → 36 PASS, código de saída 0, processos recém-iniciados
 - [x] Fluxo do avaliador: validador rodado a partir de um clone limpo seguindo só o README (36/36, 11/11/2026); passos 3 e 7 a 13 percorridos com os corpos de `exemplos/wire/` sobre processos recém-iniciados do mesmo código
-- [ ] Push na `main` do fork e link enviado
+- [x] Push na `main` do fork (11/11/2026)
+- [ ] Link do repositório enviado na área de entrega do curso (feito por você)
