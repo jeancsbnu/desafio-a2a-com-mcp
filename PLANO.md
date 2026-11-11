@@ -324,11 +324,11 @@ Legenda: `#N` = verificação do validador · `(manual)` = conferida no fluxo do
 - [x] Retry MCP com id JSON-RPC diferente do inicial, a mesma chave do `inputRequests` e o `requestState` intacto (manual)
 
 ### README e entrega
-- [ ] Seção **Como rodar**: comandos exatos a partir de um clone limpo (instalar, gerar e exportar o segredo, subir os dois processos, rodar o validador), com e sem `uv`, em bash e PowerShell
-- [ ] Seção **Onde a ponte acontece**: arquivo e função em que `input_required` vira `TASK_STATE_INPUT_REQUIRED` e em que o `requestState` volta ao servidor
-- [ ] Seção **Decisões técnicas**: AES-GCM/HMAC do SDK, TTL, onde fica o estado das Tasks
-- [ ] Seção **Saída do validador**: saída completa da última execução, em bloco de código
-- [ ] Limitações reais do SDK documentadas com evidência, se houver
+- [x] Seção **Como rodar**: comandos exatos a partir de um clone limpo (instalar, gerar e exportar o segredo, subir os dois processos, rodar o validador), com e sem `uv`, em bash e PowerShell
+- [x] Seção **Onde a ponte acontece**: arquivo e função em que `input_required` vira `TASK_STATE_INPUT_REQUIRED` e em que o `requestState` volta ao servidor
+- [x] Seção **Decisões técnicas**: AES-GCM/HMAC do SDK, TTL, onde fica o estado das Tasks
+- [x] Seção **Saída do validador**: saída completa da última execução, em bloco de código
+- [x] Limitações reais do SDK documentadas com evidência, se houver
 - [x] `python3 validador/validar.py --agente http://localhost:7300 --mcp http://localhost:7301` → 36 PASS, código de saída 0, processos recém-iniciados
-- [ ] Fluxo do avaliador (passos 1 a 13) percorrido na mão a partir de um clone limpo
+- [x] Fluxo do avaliador: validador rodado a partir de um clone limpo seguindo só o README (36/36, 11/11/2026); passos 3 e 7 a 13 percorridos com os corpos de `exemplos/wire/` sobre processos recém-iniciados do mesmo código
 - [ ] Push na `main` do fork e link enviado
