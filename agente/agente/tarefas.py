@@ -76,6 +76,18 @@ class Tarefa:
             self.historico.append(self.mensagem_status)
         print(f"a2a: {self.id} {estado} trace={self.trace.trace_id}", file=sys.stderr, flush=True)
 
+    def restaurar_pausa(self, mensagem_status: dict[str, Any] | None) -> None:
+        """Desfaz um WORKING cujo retry nao chegou ao servidor MCP.
+
+        A Task volta a `TASK_STATE_INPUT_REQUIRED` exatamente como estava, sem nova
+        mensagem no historico: para o cliente, a escolha simplesmente nao aconteceu.
+        """
+        if self.estado != WORKING:
+            raise RuntimeError(f"restaurar_pausa com a {self.id} em {self.estado}")
+        self.estado = INPUT_REQUIRED
+        self.mensagem_status = mensagem_status
+        print(f"a2a: {self.id} {INPUT_REQUIRED} (retry nao chegou ao MCP) trace={self.trace.trace_id}", file=sys.stderr, flush=True)
+
     def repetir_status(self, texto: str) -> None:
         """Responde sem mudar de estado (escolha invalida numa Task pausada)."""
         self.mensagem_status = self.mensagem_do_agente(texto)

@@ -24,7 +24,16 @@ import mcp_types as types
 from mcp.shared.exceptions import MCPError
 
 from agente import pedido
-from agente.host_mcp import TOOL_RESERVA, Concluido, FalhaDaTool, HostMCP, Pergunta, RespostaInesperada, Resultado
+from agente.host_mcp import (
+    TOOL_RESERVA,
+    Concluido,
+    FalhaDaTool,
+    HostMCP,
+    Pergunta,
+    RespostaInesperada,
+    Resultado,
+    servidor_indisponivel,
+)
 from agente.tarefas import CANCELED, COMPLETED, FAILED, INPUT_REQUIRED, WORKING, Pendencia, Tarefa, novo_id
 from agente.trace import Trace
 
@@ -36,8 +45,20 @@ MAXIMO_DE_RODADAS = 5
 _PREFIXO_DO_SDK = re.compile(r"^Error executing tool \S+: ")
 
 
+class ServidorMCPIndisponivel(Exception):
+    """O retry de uma Task pausada nao chegou ao servidor MCP; a Task voltou a pausa."""
+
+
 def linha_de_alternativas(pergunta: Pergunta) -> str:
     return "alternativas: " + ", ".join(pergunta.alternativas)
+
+
+def _texto_de_falha(erro: MCPError) -> str:
+    if servidor_indisponivel(erro):
+        return "Servidor MCP indisponivel no momento. Envie o pedido de novo."
+    if erro.error.code == types.INVALID_PARAMS:
+        return "O servidor MCP recusou o pedido (codigo -32602): o estado da reserva pode ter expirado. Envie o pedido de novo."
+    return f"Falha na comunicacao com o servidor MCP (codigo {erro.error.code})"
 
 
 class Ponte:
@@ -72,13 +93,21 @@ class Ponte:
             tarefa.repetir_status(linha_de_alternativas(pendencia.pergunta))
             return
 
+        status_da_pausa = tarefa.mensagem_status
         tarefa.mudar(WORKING)
         tarefa.pendencia = None
         if valor == pedido.RECUSAR:
             resposta = types.ElicitResult(action="decline")
         else:
             resposta = types.ElicitResult(action="accept", content={"sala": valor})
-        await self._protegido(tarefa, self._retomar(tarefa, pendencia, resposta, trace))
+        try:
+            await self._protegido(tarefa, self._retomar(tarefa, pendencia, resposta, trace), repassar_indisponivel=True)
+        except ServidorMCPIndisponivel:
+            # O retry nem chegou ao servidor e o requestState segue valido: a Task volta
+            # a esperar a escolha, intacta, e o cliente pode tentar de novo.
+            tarefa.pendencia = pendencia
+            tarefa.restaurar_pausa(status_da_pausa)
+            raise
 
     async def _retomar(self, tarefa: Tarefa, pendencia: Pendencia, resposta: types.ElicitResult, trace: Trace) -> None:
         # <- aqui o requestState volta para o servidor MCP, no retry com id novo.
@@ -107,16 +136,20 @@ class Ponte:
         tarefa.artefatos.append({"artifactId": novo_id("art"), "name": "reserva", "parts": [{"text": json.dumps(reserva)}]})
         tarefa.mudar(COMPLETED, f"Reserva {dados.get('reserva')} confirmada na {dados.get('sala')}.")
 
-    async def _protegido(self, tarefa: Tarefa, passo: Awaitable[None]) -> None:
+    async def _protegido(self, tarefa: Tarefa, passo: Awaitable[None], repassar_indisponivel: bool = False) -> None:
         """Falha de protocolo ou de rede com o MCP termina a Task em FAILED, com texto fixo.
 
         O texto cru do erro fica so no stderr do agente: nunca vai para o cliente A2A.
+        Com `repassar_indisponivel`, a falha de rede sobe como `ServidorMCPIndisponivel`
+        para quem chamou decidir (a continuacao devolve a Task a pausa).
         """
         try:
             await passo
         except MCPError as e:
             print(f"a2a: {tarefa.id} erro MCP {e.error.code}: {e.error.message}", file=sys.stderr, flush=True)
-            tarefa.mudar(FAILED, f"Falha na comunicacao com o servidor MCP (codigo {e.error.code})")
+            if repassar_indisponivel and servidor_indisponivel(e):
+                raise ServidorMCPIndisponivel from e
+            tarefa.mudar(FAILED, _texto_de_falha(e))
         except RespostaInesperada as e:
             print(f"a2a: {tarefa.id} resposta inesperada do MCP: {e}", file=sys.stderr, flush=True)
             tarefa.mudar(FAILED, "O servidor MCP respondeu fora do contrato da reserva")

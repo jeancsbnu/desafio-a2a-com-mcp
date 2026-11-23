@@ -19,7 +19,7 @@ from starlette.routing import Route
 from agente import trace as tracectx
 from agente.card import agent_card
 from agente.host_mcp import HostMCP
-from agente.ponte import Ponte
+from agente.ponte import Ponte, ServidorMCPIndisponivel
 from agente.tarefas import INPUT_REQUIRED, Tarefas
 from agente.trace import Trace
 
@@ -92,7 +92,14 @@ async def send_message(ponte: Ponte, tarefas: Tarefas, params: dict[str, Any], t
         if mensagem.get("contextId") not in (None, tarefa.context_id):
             raise ErroJsonRpc(INVALID_PARAMS, "message.contextId nao corresponde ao da Task")
         tarefa.historico.append(dict(mensagem))
-        await ponte.continuar(tarefa, texto, trace or tarefa.trace)
+        try:
+            await ponte.continuar(tarefa, texto, trace or tarefa.trace)
+        except ServidorMCPIndisponivel:
+            # A escolha nao foi processada: sai do historico, e a Task segue pausada como estava.
+            tarefa.historico.pop()
+            raise ErroJsonRpc(
+                INTERNAL_ERROR, "Servidor MCP indisponivel; a Task continua aguardando a escolha. Envie a escolha de novo."
+            ) from None
     return {"task": tarefa.para_wire(tamanho)}
 
 

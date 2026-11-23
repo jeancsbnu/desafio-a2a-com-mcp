@@ -10,7 +10,7 @@ cliente A2A ──SendMessage/GetTask + traceparent──▶ agente :7300 ──
             ◀── Task (INPUT_REQUIRED / COMPLETED) ──           ◀── input_required + requestState ──
 ```
 
-Stack: Python 3.11+, SDK oficial `mcp==2.3.0` (revisão `2026-07-28` da spec), Starlette `1.10.0` e uvicorn `0.54.0`. As versões estão travadas em `pyproject.toml` (`==`), `uv.lock` e `requirements.txt` de cada processo.
+Stack: Python 3.10+, SDK oficial `mcp==2.3.0` (revisão `2026-07-28` da spec), Starlette `1.7.0` e uvicorn `0.54.0`. As versões estão travadas em `pyproject.toml` (`==`), `uv.lock` e `requirements.txt` de cada processo.
 
 ---
 
@@ -18,7 +18,7 @@ Stack: Python 3.11+, SDK oficial `mcp==2.3.0` (revisão `2026-07-28` da spec), S
 
 Pré-requisitos:
 
-- [uv](https://docs.astral.sh/uv/) (recomendado), que baixa um Python 3.11+ se faltar, **ou** Python 3.11+ com `pip`. O `uv.lock` foi gerado com o uv 0.13; um uv muito antigo pode recusá-lo. Nesse caso, atualize com `uv self update` ou instale com `curl -LsSf https://astral.sh/uv/install.sh | sh`;
+- [uv](https://docs.astral.sh/uv/) (recomendado), que baixa um Python 3.10+ se faltar, **ou** Python 3.10+ com `pip`. O `uv.lock` foi gerado com o uv 0.13; um uv muito antigo pode recusá-lo. Nesse caso, atualize com `uv self update` ou instale com `curl -LsSf https://astral.sh/uv/install.sh | sh`;
 - Python 3.10+ para o validador.
 
 Os três processos rodam em três terminais, a partir da raiz de um clone limpo:
@@ -102,6 +102,8 @@ A proteção contra DNS rebinding do SDK só aceita os headers `Host` `localhost
 
 | Comando | O que prova |
 |---|---|
+| `cd servidor-mcp && uv run --frozen python -m unittest discover -s tests -p "test_*.py" -v` | Regras de domínio nas bordas: janela em 08:00 e 20:00 (convertida para `-03:00`), duração de 2 h exatas, intervalo semiaberto, alternativas por `(capacidade, id)` e no máximo 3 |
+| `cd agente && uv run --frozen python -m unittest discover -s tests -p "test_*.py" -v` | Parser dos textos fixos (`reservar …`, `escolha=…`) e leitura do `traceparent` |
 | `python3 scripts/teste_restart.py preparar` → reiniciar o servidor MCP **com o mesmo segredo** → `python3 scripts/teste_restart.py concluir` | Retry do MRTR depois de um restart, no pior caso: as alternativas mudam entre a pergunta e o retry |
 | `cd servidor-mcp && uv run --frozen python -m tests.teste_expiracao` | `requestState` expirado vira `-32602`; 5 s antes de expirar, ainda conclui |
 | `cd agente && uv run --frozen python -m tests.fumaca_host_mcp` (servidor MCP recém-iniciado) | Host MCP sozinho: descoberta, política, pausa, retry, recusa, erro da tool |
@@ -115,12 +117,12 @@ O teste de vazamento existe porque a verificação 34 do validador procura um to
 
 A ponte está em [`agente/agente/ponte.py`](agente/agente/ponte.py).
 
-**Ida.** Quando o `tools/call` de `reservar_sala` volta com `resultType: input_required`, `HostMCP.reservar` ([`host_mcp.py:170`](agente/agente/host_mcp.py)) chama o SDK com `allow_input_required=True`, para receber o resultado cru, sem callback de elicitation. Em seguida, `_pergunta` traduz a resposta num `Pergunta(chave, alternativas, request_state)`. Em `Ponte._aplicar` ([`ponte.py:88`](agente/agente/ponte.py), comentário `<- aqui o input_required do MCP vira TASK_STATE_INPUT_REQUIRED`), essa pergunta vira a pausa:
+**Ida.** Quando o `tools/call` de `reservar_sala` volta com `resultType: input_required`, `HostMCP.reservar` ([`host_mcp.py:183`](agente/agente/host_mcp.py)) chama o SDK com `allow_input_required=True`, para receber o resultado cru, sem callback de elicitation. Em seguida, `_pergunta` traduz a resposta num `Pergunta(chave, alternativas, request_state)`. Em `Ponte._aplicar` ([`ponte.py:117`](agente/agente/ponte.py), comentário `<- aqui o input_required do MCP vira TASK_STATE_INPUT_REQUIRED`), essa pergunta vira a pausa:
 
 - a Task ganha uma `Pendencia` com a chave, as alternativas, o `requestState` opaco e o **mesmo dict `arguments`** da primeira chamada;
 - a Task muda para `TASK_STATE_INPUT_REQUIRED` com a mensagem exata `alternativas: <ids na ordem do enum>`.
 
-**Volta.** O `SendMessage` de continuação traz `taskId` e `escolha=<id>`, e chega em `Ponte.continuar` ([`ponte.py:65`](agente/agente/ponte.py)), que confere a escolha contra o `enum` recebido. Daí, `Ponte._retomar` ([`ponte.py:83`](agente/agente/ponte.py), comentário `<- aqui o requestState volta para o servidor MCP`) chama `HostMCP.retomar` ([`host_mcp.py:176`](agente/agente/host_mcp.py)). Esse método repete o `tools/call` com um id de JSON-RPC novo, alocado pelo contador do SDK. O request leva `inputResponses` com a mesma chave, o `requestState` ecoado sem modificação e os mesmos `arguments`.
+**Volta.** O `SendMessage` de continuação traz `taskId` e `escolha=<id>`, e chega em `Ponte.continuar` ([`ponte.py:86`](agente/agente/ponte.py)), que confere a escolha contra o `enum` recebido. Daí, `Ponte._retomar` ([`ponte.py:112`](agente/agente/ponte.py), comentário `<- aqui o requestState volta para o servidor MCP`) chama `HostMCP.retomar` ([`host_mcp.py:189`](agente/agente/host_mcp.py)). Esse método repete o `tools/call` com um id de JSON-RPC novo, alocado pelo contador do SDK. O request leva `inputResponses` com a mesma chave, o `requestState` ecoado sem modificação e os mesmos `arguments`.
 
 **Do lado do servidor**, `reservar_sala` ([`servidor_mcp/app.py:110`](servidor-mcp/servidor_mcp/app.py)) tem duas metades:
 
@@ -168,7 +170,10 @@ As reservas também ficam em memória, no servidor MCP, e somem num restart, com
 - **O agente não decide domínio.** Conflito, política e alternativas vêm do servidor MCP. O agente só confere se a escolha está no `enum` que o servidor mandou, o que é validação de protocolo.
 - **Mensagens de status:**
   - Erro de execução da tool (`isError`) vira `TASK_STATE_FAILED` com a mensagem da tool, sem o prefixo `Error executing tool …:` que o SDK acrescenta.
-  - Erro de protocolo do MCP vira `FAILED` com texto fixo. O texto cru fica só no stderr do agente.
+  - Erro de protocolo do MCP vira `FAILED` com texto fixo. O texto cru fica só no stderr do agente. Um `-32602` no retry diz que o estado da reserva pode ter expirado.
+  - Servidor MCP fora do ar:
+    - no pedido inicial, a Task termina em `FAILED` com "Servidor MCP indisponivel no momento";
+    - na continuação de uma Task pausada, o `SendMessage` recebe `-32603` e a Task **continua em `TASK_STATE_INPUT_REQUIRED`, intacta** (`Ponte.continuar` e `Tarefa.restaurar_pausa`). O `requestState` segue válido, e a mesma escolha conclui quando o servidor volta.
   - Pedido fora do formato vira `FAILED` com o formato esperado.
   - Escolha fora do `enum` mantém a pausa e repete a linha.
 - **Descoberta em runtime:** em cada Task, o agente faz `tools/list` e confere `reservar_sala`, depois `resources/read politica://uso` (versão da 1ª linha vai para o campo `politica` do artifact), e só então `tools/call`.
@@ -182,9 +187,9 @@ As reservas também ficam em memória, no servidor MCP, e somem num restart, com
    - **Onde:** em `mcp/client/streamable_http.py`, uma exceção de rede dentro do POST (`httpx2.ConnectError`, timeout) escapa de `_run_request_post`, que roda no task group do `post_writer`.
    - **Efeito:** o task group do `streamable_http_client` cai, quem chamou recebe `CancelledError`, e todas as chamadas seguintes falham.
    - **O que funciona:** uma resposta HTTP ≥ 400 com erro JSON-RPC no corpo vira `MCPError` só daquela chamada (`_handle_post_request`).
-   - **Contorno:** o transporte `FalhaDeConexaoComoErro` ([`host_mcp.py:30`](agente/agente/host_mcp.py)) troca a falha de rede por um 503 com erro JSON-RPC. Testado: com o servidor fora do ar, as chamadas dão `MCPError` e a mesma sessão volta a funcionar quando ele sobe.
-2. **O cliente declara elicitation `form` e `url`** sempre que há `elicitation_callback` (`mcp/client/session.py:634-638`). O agente sobrescreve `ClientSession._build_capabilities` em `SessaoSoFormulario` ([`host_mcp.py:55`](agente/agente/host_mcp.py)) para declarar só `form`, sem callback.
-3. **O transporte prende a sessão à task do asyncio que a abriu.** Ela é aberta e fechada no lifespan do Starlette ([`a2a.py:122`](agente/agente/a2a.py)), e não no primeiro request.
+   - **Contorno:** o transporte `FalhaDeConexaoComoErro` ([`host_mcp.py:39`](agente/agente/host_mcp.py)) troca a falha de rede por um 503 com erro JSON-RPC. Testado: com o servidor fora do ar, as chamadas dão `MCPError` e a mesma sessão volta a funcionar quando ele sobe.
+2. **O cliente declara elicitation `form` e `url`** sempre que há `elicitation_callback` (`mcp/client/session.py:634-638`). O agente sobrescreve `ClientSession._build_capabilities` em `SessaoSoFormulario` ([`host_mcp.py:68`](agente/agente/host_mcp.py)) para declarar só `form`, sem callback.
+3. **O transporte prende a sessão à task do asyncio que a abriu.** Ela é aberta e fechada no lifespan do Starlette ([`a2a.py:129`](agente/agente/a2a.py)), e não no primeiro request.
 4. **`Resolve`/`Elicit` não sobrevive à mudança das alternativas** (`resolve.py:604-611`); ver "O MRTR do servidor é escrito à mão".
 
 ---

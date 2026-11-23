@@ -53,7 +53,9 @@ def sala_por_id(sala_id: str) -> dict | None:
 
 def _data(texto: str) -> datetime:
     try:
-        valor = datetime.fromisoformat(texto)
+        # O sufixo Z so e aceito por fromisoformat a partir do Python 3.11; normaliza
+        # para o mesmo pedido dar o mesmo resultado em qualquer versao suportada.
+        valor = datetime.fromisoformat(texto[:-1] + "+00:00" if texto.endswith(("Z", "z")) else texto)
     except (TypeError, ValueError):
         raise RegraViolada(f"Data invalida: {texto}. Use ISO 8601 com fuso, ex. 2026-11-03T14:00:00-03:00") from None
     if valor.tzinfo is None:

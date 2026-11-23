@@ -18,13 +18,19 @@ click==8.5.1
     # via uvicorn
 cryptography==50.0.2
     # via pyjwt
+exceptiongroup==1.3.2 ; python_full_version < '3.11'
+    # via anyio
 h11==0.16.0
     # via
     #   httpcore2
     #   uvicorn
-httpcore2==2.16.0 ; sys_platform != 'emscripten'
+httpcore2==2.14.0 ; python_full_version < '3.11' and sys_platform != 'emscripten'
     # via httpx2
-httpx2==2.16.0
+httpcore2==2.16.0 ; python_full_version >= '3.11' and sys_platform != 'emscripten'
+    # via httpx2
+httpx2==2.14.0 ; python_full_version < '3.11'
+    # via mcp
+httpx2==2.16.0 ; python_full_version >= '3.11'
     # via mcp
 httpx2-jsfetch==1.0 ; python_full_version >= '3.12' and sys_platform == 'emscripten'
     # via httpx2
@@ -42,7 +48,9 @@ mcp-types==2.3.0
     # via mcp
 opentelemetry-api==1.45.2
     # via mcp
-pycparser==3.12 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+pycparser==3.11 ; python_full_version < '3.11' and implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+    # via cffi
+pycparser==3.12 ; python_full_version >= '3.11' and implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
     # via cffi
 pydantic==2.14.3
     # via
@@ -52,7 +60,9 @@ pydantic-core==2.50.4
     # via pydantic
 pyjwt==2.15.1
     # via mcp
-python-multipart==0.0.33
+python-multipart==0.0.32 ; python_full_version < '3.11'
+    # via mcp
+python-multipart==0.0.33 ; python_full_version >= '3.11'
     # via mcp
 pywin32==312 ; sys_platform == 'win32'
     # via mcp
@@ -60,13 +70,19 @@ referencing==0.37.0
     # via
     #   jsonschema
     #   jsonschema-specifications
-rpds-py==2026.9.1
+rpds-py==0.30.0 ; python_full_version < '3.11'
     # via
     #   jsonschema
     #   referencing
-sse-starlette==3.7.0
+rpds-py==2026.9.1 ; python_full_version >= '3.11'
+    # via
+    #   jsonschema
+    #   referencing
+sse-starlette==3.5.1 ; python_full_version < '3.11'
     # via mcp
-starlette==1.10.0
+sse-starlette==3.7.0 ; python_full_version >= '3.11'
+    # via mcp
+starlette==1.7.0
     # via
     #   agente
     #   mcp
@@ -78,15 +94,19 @@ truststore==0.10.5 ; sys_platform != 'emscripten'
 typing-extensions==4.16.0
     # via
     #   anyio
+    #   cryptography
+    #   exceptiongroup
     #   httpx2
     #   mcp
     #   mcp-types
     #   opentelemetry-api
     #   pydantic
     #   pydantic-core
+    #   pyjwt
     #   referencing
     #   starlette
     #   typing-inspection
+    #   uvicorn
 typing-inspection==0.4.5
     # via
     #   mcp

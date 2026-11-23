@@ -17,6 +17,7 @@ import httpx2
 import mcp_types as types
 from mcp.client.session import ClientSession
 from mcp.client.streamable_http import streamable_http_client
+from mcp.shared.exceptions import MCPError
 from mcp.shared.jsonrpc_dispatcher import JSONRPCDispatcher
 
 from agente.trace import Trace
@@ -25,6 +26,14 @@ PROTOCOLO = "2026-07-28"
 TOOL_RESERVA = "reservar_sala"
 RESOURCE_POLITICA = "politica://uso"
 TIMEOUT_HTTP = 30.0
+
+# Marca, no `data` do erro, a falha de rede que `FalhaDeConexaoComoErro` converte.
+MOTIVO_INDISPONIVEL = "servidor_mcp_indisponivel"
+
+
+def servidor_indisponivel(erro: MCPError) -> bool:
+    """O request nem chegou ao servidor MCP (rede, servidor fora do ar, timeout)."""
+    return isinstance(erro.error.data, dict) and erro.error.data.get("motivo") == MOTIVO_INDISPONIVEL
 
 
 class FalhaDeConexaoComoErro(httpx2.AsyncBaseTransport):
@@ -45,7 +54,11 @@ class FalhaDeConexaoComoErro(httpx2.AsyncBaseTransport):
         try:
             return await self._interno.handle_async_request(request)
         except httpx2.TransportError as e:
-            erro = {"code": types.INTERNAL_ERROR, "message": f"Servidor MCP indisponivel ({type(e).__name__})"}
+            erro = {
+                "code": types.INTERNAL_ERROR,
+                "message": f"Servidor MCP indisponivel ({type(e).__name__})",
+                "data": {"motivo": MOTIVO_INDISPONIVEL},
+            }
             return httpx2.Response(503, json={"jsonrpc": "2.0", "id": None, "error": erro}, request=request)
 
     async def aclose(self) -> None:

@@ -246,7 +246,19 @@ Cada fase termina com o validador rodando contra os processos recém-iniciados. 
 - **Revisão final (23/11/2026), outras correções aplicadas:**
   - README: o `export` do segredo ficou separado do `uv run`, com o aviso de não gerar outro segredo ao reiniciar (passo 12); nota de que `SUBMITTED`/`WORKING` aparecem no stderr do agente; versão mínima do `uv`.
   - `/a2a`: um erro inesperado vira `-32603` "Erro interno do agente", em vez de HTTP 500.
-  - Ficaram como opcionais: manter a Task pausada quando o MCP está fora do ar no retry, aceitar Python 3.10 e testes unitários de `dominio.py` e `pedido.py`.
+- **Opcionais da revisão final, aplicados em 23/11/2026:**
+  - **MCP fora do ar no retry:**
+    - O transporte marca a falha de rede no `data` do erro (`MOTIVO_INDISPONIVEL`).
+    - `Ponte.continuar` devolve a pendência e chama `Tarefa.restaurar_pausa`, e o `SendMessage` recebe `-32603`, sem nova mensagem no histórico.
+    - A mesma escolha conclui quando o servidor volta.
+    - O `-32602` no retry ganhou texto que fala de estado expirado.
+  - **Python 3.10:** `requires-python = ">=3.10"`, Starlette `1.7.0` (a última que aceita 3.10), `uv.lock` e `requirements.txt` refeitos. `dominio._data` normaliza o sufixo `Z`, que o `fromisoformat` só aceita a partir do 3.11.
+  - **Testes unitários com `unittest`, sem dependência nova:**
+    - `servidor-mcp/tests/test_dominio.py`: 13 testes das bordas de janela, duração, intervalo, sobreposição e alternativas.
+    - `agente/tests/test_pedido.py`: 8 testes do parser e do `traceparent`.
+  - **Resultados:**
+    - Windows (3.12): 36/36, 21 testes unitários, vazamento e fumaça OK; cenário do MCP fora no retry OK.
+    - Linux `python:3.10-slim`: testes unitários, restart, expiração, 36/36 no validador, vazamento e instalação via `pip` OK.
 
 ---
 
