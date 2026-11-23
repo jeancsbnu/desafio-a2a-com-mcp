@@ -18,7 +18,7 @@ Stack: Python 3.11+, SDK oficial `mcp==2.3.0` (revisão `2026-07-28` da spec), S
 
 Pré-requisitos:
 
-- [uv](https://docs.astral.sh/uv/) (recomendado), que baixa um Python 3.11+ se faltar, **ou** Python 3.11+ com `pip`;
+- [uv](https://docs.astral.sh/uv/) (recomendado), que baixa um Python 3.11+ se faltar, **ou** Python 3.11+ com `pip`. O `uv.lock` foi gerado com o uv 0.13; um uv muito antigo pode recusá-lo. Nesse caso, atualize com `uv self update` ou instale com `curl -LsSf https://astral.sh/uv/install.sh | sh`;
 - Python 3.10+ para o validador.
 
 Os três processos rodam em três terminais, a partir da raiz de um clone limpo:
@@ -30,25 +30,28 @@ cd desafio-a2a-com-mcp
 
 ### 1. Servidor MCP (terminal 1)
 
-O servidor exige a chave de integridade do `requestState` na variável `REQUEST_STATE_SECRET`, com no mínimo 32 bytes aleatórios. Gere a sua e exporte **no mesmo terminal** em que o servidor vai rodar. O valor nunca vai para o repositório. Sem a variável, o processo para na subida e mostra o comando abaixo.
+O servidor exige a chave de integridade do `requestState` na variável `REQUEST_STATE_SECRET`, com no mínimo 32 bytes aleatórios. Gere a sua e exporte **uma vez**, **no mesmo terminal** em que o servidor vai rodar. O valor nunca vai para o repositório. Sem a variável, o processo para na subida e mostra o comando abaixo.
 
-bash:
+Gerar e exportar o segredo (uma vez por terminal):
 
 ```bash
 export REQUEST_STATE_SECRET="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
-cd servidor-mcp
-uv run --frozen python -m servidor_mcp
 ```
-
-PowerShell:
 
 ```powershell
 $env:REQUEST_STATE_SECRET = python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Subir o servidor (bash e PowerShell):
+
+```bash
 cd servidor-mcp
 uv run --frozen python -m servidor_mcp
 ```
 
 O stderr deste terminal é o log de requests: método, id, nome da tool ou URI e `traceparent` de cada request.
+
+**Para reiniciar o servidor** (passo 12 do fluxo do avaliador): Ctrl+C e rode de novo só o `uv run --frozen python -m servidor_mcp`, **no mesmo terminal e sem gerar outro segredo**. Um `requestState` emitido antes do restart continua válido porque a chave é a mesma. Com um segredo novo, ele é recusado com `-32602`, de propósito.
 
 ### 2. Agente (terminal 2)
 
@@ -59,7 +62,7 @@ cd agente
 uv run --frozen python -m agente
 ```
 
-O stderr mostra as capabilities que o agente declara ao MCP e cada transição de estado das Tasks, com o trace-id.
+O stderr mostra as capabilities que o agente declara ao MCP e cada transição de estado das Tasks, com o trace-id. É ali que aparecem `TASK_STATE_SUBMITTED` e `TASK_STATE_WORKING`. O `SendMessage` é bloqueante, como em `exemplos/wire/08` e `10`, e devolve a Task já pausada ou terminada. Um `GetTask` feito durante a chamada ao MCP vê `TASK_STATE_WORKING`.
 
 ### 3. Validador (terminal 3)
 
@@ -181,7 +184,7 @@ As reservas também ficam em memória, no servidor MCP, e somem num restart, com
    - **O que funciona:** uma resposta HTTP ≥ 400 com erro JSON-RPC no corpo vira `MCPError` só daquela chamada (`_handle_post_request`).
    - **Contorno:** o transporte `FalhaDeConexaoComoErro` ([`host_mcp.py:30`](agente/agente/host_mcp.py)) troca a falha de rede por um 503 com erro JSON-RPC. Testado: com o servidor fora do ar, as chamadas dão `MCPError` e a mesma sessão volta a funcionar quando ele sobe.
 2. **O cliente declara elicitation `form` e `url`** sempre que há `elicitation_callback` (`mcp/client/session.py:634-638`). O agente sobrescreve `ClientSession._build_capabilities` em `SessaoSoFormulario` ([`host_mcp.py:55`](agente/agente/host_mcp.py)) para declarar só `form`, sem callback.
-3. **O transporte prende a sessão à task do asyncio que a abriu.** Ela é aberta e fechada no lifespan do Starlette ([`a2a.py:120`](agente/agente/a2a.py)), e não no primeiro request.
+3. **O transporte prende a sessão à task do asyncio que a abriu.** Ela é aberta e fechada no lifespan do Starlette ([`a2a.py:122`](agente/agente/a2a.py)), e não no primeiro request.
 4. **`Resolve`/`Elicit` não sobrevive à mudança das alternativas** (`resolve.py:604-611`); ver "O MRTR do servidor é escrito à mão".
 
 ---

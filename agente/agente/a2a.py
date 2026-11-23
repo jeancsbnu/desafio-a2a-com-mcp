@@ -6,6 +6,7 @@ So `SendMessage` e `GetTask`. Sem streaming, push notification ou cancelamento.
 from __future__ import annotations
 
 import json
+import traceback
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -27,6 +28,7 @@ PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
+INTERNAL_ERROR = -32603
 # A2A v1.0
 TASK_NOT_FOUND = -32001
 UNSUPPORTED_OPERATION = -32004
@@ -145,6 +147,10 @@ def criar_app(url_mcp: str, url_publica: str) -> Starlette:
             resultado = await metodo(request.app.state.ponte, tarefas, params, trace)
         except ErroJsonRpc as e:
             return _resposta_de_erro(id_, e.code, e.message)
+        except Exception:
+            # Um bug no agente vira erro JSON-RPC com texto fixo, nao um 500 do Starlette.
+            traceback.print_exc()
+            return _resposta_de_erro(id_, INTERNAL_ERROR, "Erro interno do agente")
         return JSONResponse({"jsonrpc": "2.0", "id": id_, "result": resultado})
 
     app = Starlette(

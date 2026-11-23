@@ -238,6 +238,15 @@ Cada fase termina com o validador rodando contra os processos recém-iniciados. 
 - **Proteção contra DNS rebinding:** com `host="localhost"`, o SDK só aceita os headers `Host` `127.0.0.1:*`, `localhost:*` e `[::1]:*`; outro valor recebe `421`. Documentar no README.
 - **Segredo com `.strip()`:** um `\r` ou `\n` sobrando ao exportar no shell muda a chave, e o retry depois de um restart passa a dar `-32602`.
 - **A revisão simulou as 36 verificações em sequência** com as regras desta versão do plano, e todas dão o resultado esperado. Em `#32`, `#33a` e `#33b` a pausa tem uma alternativa só. O `#18` depende de `garagem` 9–10 estar livre quando o validador reserva para "Ocupante".
+- **Restart em Linux e macOS precisa de `SO_REUSEADDR`** (achado da revisão final de 23/11/2026, confirmado em contêiner `python:3.12-slim`):
+  - Os sockets abertos à mão em `abrir_sockets` não tinham a flag, que o uvicorn liga quando abre o socket sozinho. Derrubar o MCP deixa conexões em `TIME_WAIT` na 7301, e o novo `bind` falha com `Address already in use`. Isso quebraria o passo 12 do avaliador.
+  - No Linux, a flag precisa estar no socket antigo também, porque as conexões herdam do listener. Por isso, testar a versão nova logo depois da antiga, no mesmo contêiner, ainda falha.
+  - Corrigido nos dois `__main__.py`, só fora do Windows, onde a flag teria outro sentido. Endereço indisponível (IPv6 desligado) agora é pulado, em vez de derrubar a subida.
+  - Resultado em Linux: a versão publicada falha no restart; a corrigida conclui o restart duas vezes e passa 36/36 no validador seguindo o README, também com IPv6 desligado no contêiner.
+- **Revisão final (23/11/2026), outras correções aplicadas:**
+  - README: o `export` do segredo ficou separado do `uv run`, com o aviso de não gerar outro segredo ao reiniciar (passo 12); nota de que `SUBMITTED`/`WORKING` aparecem no stderr do agente; versão mínima do `uv`.
+  - `/a2a`: um erro inesperado vira `-32603` "Erro interno do agente", em vez de HTTP 500.
+  - Ficaram como opcionais: manter a Task pausada quando o MCP está fora do ar no retry, aceitar Python 3.10 e testes unitários de `dominio.py` e `pedido.py`.
 
 ---
 

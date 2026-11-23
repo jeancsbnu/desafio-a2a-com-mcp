@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import socket
+import sys
 
 import uvicorn
 
 from agente.a2a import criar_app
+
+# Endereco que a maquina nao tem (IPv6 desligado, por exemplo): pula e segue com os outros.
+_ENDERECO_INDISPONIVEL = {errno.EAFNOSUPPORT, errno.EADDRNOTAVAIL, errno.EPROTONOSUPPORT}
 
 
 def abrir_sockets(host: str, porta: int) -> list[socket.socket]:
@@ -16,6 +21,11 @@ def abrir_sockets(host: str, porta: int) -> list[socket.socket]:
     Com `localhost`, isso cobre 127.0.0.1 e ::1. No Windows, um cliente que tenta
     ::1 primeiro e encontra a porta fechada espera cerca de 2 s antes de cair para
     o IPv4, e isso se repetiria em cada request.
+
+    Fora do Windows liga SO_REUSEADDR, como o uvicorn faz quando abre o socket
+    sozinho: sem isso, reiniciar o processo logo depois de derruba-lo falha com
+    "Address already in use" enquanto houver conexoes em TIME_WAIT na porta. No
+    Windows a opcao deixaria outro processo tomar a porta, entao fica desligada.
     """
     sockets = []
     vistos = set()
@@ -23,12 +33,29 @@ def abrir_sockets(host: str, porta: int) -> list[socket.socket]:
         if endereco[:2] in vistos:
             continue
         vistos.add(endereco[:2])
-        sock = socket.socket(familia, tipo, proto)
-        if familia == socket.AF_INET6:
-            sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
-        sock.bind(endereco)
+        try:
+            sock = socket.socket(familia, tipo, proto)
+        except OSError as e:
+            if e.errno not in _ENDERECO_INDISPONIVEL:
+                raise
+            print(f"aviso: {endereco[0]} ignorado ({e})", file=sys.stderr, flush=True)
+            continue
+        try:
+            if os.name != "nt":
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            if familia == socket.AF_INET6:
+                sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
+            sock.bind(endereco)
+        except OSError as e:
+            sock.close()
+            if e.errno not in _ENDERECO_INDISPONIVEL:
+                sys.exit(f"nao consegui escutar em {endereco[0]} porta {porta}: {e}")
+            print(f"aviso: {endereco[0]} ignorado ({e})", file=sys.stderr, flush=True)
+            continue
         sock.set_inheritable(True)
         sockets.append(sock)
+    if not sockets:
+        sys.exit(f"nenhum endereco de {host} disponivel para escutar na porta {porta}")
     return sockets
 
 
