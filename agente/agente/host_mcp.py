@@ -80,7 +80,9 @@ class FalhaDeConexaoComoErro(httpx2.AsyncBaseTransport):
             return resposta
         try:
             corpo = await resposta.aread()
-        except httpx2.TransportError as e:
+        except (httpx2.TransportError, httpx2.DecodingError) as e:
+            # DecodingError (corpo comprimido corrompido) nao e TransportError, mas
+            # derrubaria a sessao do mesmo jeito se chegasse ao SDK.
             await resposta.aclose()
             return _erro_de_rede(request, e)
         cabecalhos = [(k, v) for k, v in resposta.headers.multi_items() if k.lower() not in _CABECALHOS_DO_CORPO_ORIGINAL]
@@ -92,7 +94,7 @@ class FalhaDeConexaoComoErro(httpx2.AsyncBaseTransport):
         await self._interno.aclose()
 
 
-def _erro_de_rede(request: httpx2.Request, erro: httpx2.TransportError) -> httpx2.Response:
+def _erro_de_rede(request: httpx2.Request, erro: httpx2.RequestError) -> httpx2.Response:
     if isinstance(erro, _ANTES_DE_ENVIAR):
         mensagem, motivo = "Servidor MCP indisponivel", MOTIVO_INDISPONIVEL
     else:

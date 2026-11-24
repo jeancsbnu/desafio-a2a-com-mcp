@@ -78,11 +78,20 @@ class Ponte:
         await self._protegido(tarefa, self._reservar(tarefa, arguments, trace))
 
     async def _reservar(self, tarefa: Tarefa, arguments: dict[str, str], trace: Trace) -> None:
-        # Descoberta em runtime, antes da primeira chamada, em vez de lista fixa.
-        if TOOL_RESERVA not in await self.host.listar_tools(trace):
-            tarefa.mudar(FAILED, f"O servidor MCP nao oferece a tool {TOOL_RESERVA}")
+        try:
+            # Descoberta em runtime, antes da primeira chamada, em vez de lista fixa.
+            ferramentas = await self.host.listar_tools(trace)
+            if TOOL_RESERVA not in ferramentas:
+                tarefa.mudar(FAILED, f"O servidor MCP nao oferece a tool {TOOL_RESERVA}")
+                return
+            tarefa.politica = await self.host.versao_politica(trace)
+        except MCPError as e:
+            if not resposta_perdida(e):
+                raise
+            # Antes do tools/call nada foi reservado: o texto generico de resposta perdida enganaria.
+            print(f"a2a: {tarefa.id} erro MCP {e.error.code}: {e.error.message}", file=sys.stderr, flush=True)
+            tarefa.mudar(FAILED, "A conexao com o servidor MCP caiu durante a descoberta; nenhuma reserva foi feita. Envie o pedido de novo.")
             return
-        tarefa.politica = await self.host.versao_politica(trace)
         resultado = await self.host.reservar(arguments, trace)
         self._aplicar(tarefa, arguments, resultado, rodada=1)
 

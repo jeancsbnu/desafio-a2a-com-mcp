@@ -267,6 +267,14 @@ Cada fase termina com o validador rodando contra os processos recém-iniciados. 
     - `MOTIVO_INDISPONIVEL` (`ConnectError`, `ConnectTimeout`, `PoolTimeout`): a continuação volta à pausa, como antes.
     - `MOTIVO_RESPOSTA_PERDIDA` (timeout de leitura, corte): `FAILED` dizendo que a reserva pode ou não ter sido criada, sem voltar à pausa.
   - Regressão no Windows: validador 36/36, testes unitários dos dois processos, vazamento e o cenário do MCP fora no retry, todos OK.
+- **Terceira revisão final (23/11/2026): "pronto para entrega", com dois achados de baixa gravidade, corrigidos:**
+  - **Corpo gzip corrompido ainda derrubava a sessão.** `httpx2.DecodingError` herda de `RequestError`, não de `TransportError`, então escapava do `except` em volta do `aread()`.
+    - Agora é capturado e classificado como "resposta perdida".
+    - O caso entrou em `test_transporte.py`. O teste falha com o `except` antigo e passa com o novo.
+  - **"A reserva pode ou não ter sido criada" aparecia também em falhas da descoberta** (`tools/list`, `resources/read`), etapas que vêm antes de qualquer reserva.
+    - `Ponte._reservar` trata essas etapas com "nenhuma reserva foi feita".
+    - `agente/tests/test_ponte.py` cobre, com um host falso, o texto de cada caso e a volta à pausa com o histórico intacto.
+  - Regressão: Windows (validador 36/36, testes unitários, vazamento) e Linux `python:3.10-slim` (testes unitários, restart, expiração, 36/36, vazamento, `pip`), todos OK.
 
 ---
 

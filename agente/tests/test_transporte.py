@@ -28,10 +28,14 @@ TOOLS = {
 
 
 class ServidorFalso:
-    """Responde `tools/list`; nas conexoes marcadas, manda os cabecalhos e so parte do corpo."""
+    """Responde `tools/list`; a primeira resposta sai com o defeito pedido.
 
-    def __init__(self, cortar: int) -> None:
-        self.cortar = cortar
+    `corte`: manda os cabecalhos e so parte do corpo, e fecha a conexao.
+    `gzip`: anuncia `Content-Encoding: gzip` com um corpo que nao e gzip.
+    """
+
+    def __init__(self, defeito: str) -> None:
+        self.defeito = defeito
         self.atendidas = 0
 
     async def atender(self, leitor: asyncio.StreamReader, escritor: asyncio.StreamWriter) -> None:
@@ -45,10 +49,16 @@ class ServidorFalso:
         resposta = (
             f"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {len(corpo)}\r\nConnection: close\r\n\r\n"
         ).encode()
-        if self.atendidas <= self.cortar:
-            escritor.write(resposta + corpo[:10])  # corta no meio do corpo
-        else:
+        if self.atendidas > 1:
             escritor.write(resposta + corpo)
+        elif self.defeito == "corte":
+            escritor.write(resposta + corpo[:10])
+        else:
+            lixo = b"isto nao e gzip"
+            escritor.write(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Encoding: gzip\r\n"
+                f"Content-Length: {len(lixo)}\r\nConnection: close\r\n\r\n".encode() + lixo
+            )
         await escritor.drain()
         escritor.close()
 
@@ -60,8 +70,8 @@ def porta_livre() -> int:
 
 
 class TestFalhasDeRede(unittest.IsolatedAsyncioTestCase):
-    async def test_corte_no_meio_da_resposta_vira_resposta_perdida_e_a_sessao_segue(self) -> None:
-        falso = ServidorFalso(cortar=1)
+    async def resposta_com_defeito_vira_resposta_perdida_e_a_sessao_segue(self, defeito: str) -> None:
+        falso = ServidorFalso(defeito)
         servidor = await asyncio.start_server(falso.atender, "127.0.0.1", 0)
         porta = servidor.sockets[0].getsockname()[1]
         try:
@@ -70,12 +80,18 @@ class TestFalhasDeRede(unittest.IsolatedAsyncioTestCase):
                     await host.listar_tools(trace.novo())
                 self.assertTrue(resposta_perdida(erro.exception))
                 self.assertFalse(servidor_indisponivel(erro.exception))
-                # A mesma sessao continua funcionando depois do corte.
+                # A mesma sessao continua funcionando depois da resposta com defeito.
                 self.assertEqual(await host.listar_tools(trace.novo()), {"reservar_sala"})
         finally:
             servidor.close()
             await servidor.wait_closed()
         self.assertEqual(falso.atendidas, 2)
+
+    async def test_corte_no_meio_da_resposta_vira_resposta_perdida_e_a_sessao_segue(self) -> None:
+        await self.resposta_com_defeito_vira_resposta_perdida_e_a_sessao_segue("corte")
+
+    async def test_gzip_corrompido_vira_resposta_perdida_e_a_sessao_segue(self) -> None:
+        await self.resposta_com_defeito_vira_resposta_perdida_e_a_sessao_segue("gzip")
 
     async def test_servidor_fora_do_ar_vira_indisponivel(self) -> None:
         async with HostMCP(f"http://127.0.0.1:{porta_livre()}/mcp") as host:
