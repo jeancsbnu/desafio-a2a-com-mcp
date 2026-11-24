@@ -64,6 +64,8 @@ uv run --frozen python -m agente
 
 O stderr mostra as capabilities que o agente declara ao MCP e cada transição de estado das Tasks, com o trace-id. É ali que aparecem `TASK_STATE_SUBMITTED` e `TASK_STATE_WORKING`. O `SendMessage` é bloqueante, como em `exemplos/wire/08` e `10`, e devolve a Task já pausada ou terminada. Um `GetTask` feito durante a chamada ao MCP vê `TASK_STATE_WORKING`.
 
+No Windows, este stderr pode mostrar um `Exception in callback _ProactorBasePipeTransport._call_connection_lost` com `ConnectionResetError: [WinError 10054]`. É um aviso do próprio asyncio quando um cliente HTTP fecha a conexão de forma abrupta, como o `Invoke-RestMethod` costuma fazer. Nenhuma linha da entrega aparece na pilha, e a Task segue normalmente.
+
 ### 3. Validador (terminal 3)
 
 Com os dois processos **recém-iniciados**, porque as reservas de uma execução mudam o resultado da seguinte:
@@ -117,12 +119,12 @@ O teste de vazamento existe porque a verificação 34 do validador procura um to
 
 A ponte está em [`agente/agente/ponte.py`](agente/agente/ponte.py).
 
-**Ida.** Quando o `tools/call` de `reservar_sala` volta com `resultType: input_required`, `HostMCP.reservar` ([`host_mcp.py:225`](agente/agente/host_mcp.py)) chama o SDK com `allow_input_required=True`, para receber o resultado cru, sem callback de elicitation. Em seguida, `_pergunta` traduz a resposta num `Pergunta(chave, alternativas, request_state)`. Em `Ponte._aplicar` ([`ponte.py:129`](agente/agente/ponte.py), comentário `<- aqui o input_required do MCP vira TASK_STATE_INPUT_REQUIRED`), essa pergunta vira a pausa:
+**Ida.** Quando o `tools/call` de `reservar_sala` volta com `resultType: input_required`, `HostMCP.reservar` ([`host_mcp.py:225`](agente/agente/host_mcp.py)) chama o SDK com `allow_input_required=True`, para receber o resultado cru, sem callback de elicitation. Em seguida, `_pergunta` traduz a resposta num `Pergunta(chave, alternativas, request_state)`. Em `Ponte._aplicar` ([`ponte.py:130`](agente/agente/ponte.py), comentário `<- aqui o input_required do MCP vira TASK_STATE_INPUT_REQUIRED`), essa pergunta vira a pausa:
 
 - a Task ganha uma `Pendencia` com a chave, as alternativas, o `requestState` opaco e o **mesmo dict `arguments`** da primeira chamada;
 - a Task muda para `TASK_STATE_INPUT_REQUIRED` com a mensagem exata `alternativas: <ids na ordem do enum>`.
 
-**Volta.** O `SendMessage` de continuação traz `taskId` e `escolha=<id>`, e chega em `Ponte.continuar` ([`ponte.py:98`](agente/agente/ponte.py)), que confere a escolha contra o `enum` recebido. Daí, `Ponte._retomar` ([`ponte.py:124`](agente/agente/ponte.py), comentário `<- aqui o requestState volta para o servidor MCP`) chama `HostMCP.retomar` ([`host_mcp.py:231`](agente/agente/host_mcp.py)). Esse método repete o `tools/call` com um id de JSON-RPC novo, alocado pelo contador do SDK. O request leva `inputResponses` com a mesma chave, o `requestState` ecoado sem modificação e os mesmos `arguments`.
+**Volta.** O `SendMessage` de continuação traz `taskId` e `escolha=<id>`, e chega em `Ponte.continuar` ([`ponte.py:99`](agente/agente/ponte.py)), que confere a escolha contra o `enum` recebido. Daí, `Ponte._retomar` ([`ponte.py:125`](agente/agente/ponte.py), comentário `<- aqui o requestState volta para o servidor MCP`) chama `HostMCP.retomar` ([`host_mcp.py:231`](agente/agente/host_mcp.py)). Esse método repete o `tools/call` com um id de JSON-RPC novo, alocado pelo contador do SDK. O request leva `inputResponses` com a mesma chave, o `requestState` ecoado sem modificação e os mesmos `arguments`.
 
 **Do lado do servidor**, `reservar_sala` ([`servidor_mcp/app.py:110`](servidor-mcp/servidor_mcp/app.py)) tem duas metades:
 

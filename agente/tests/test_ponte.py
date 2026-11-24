@@ -24,17 +24,22 @@ def falha(motivo: str) -> MCPError:
     return MCPError(code=types.INTERNAL_ERROR, message="falha de rede simulada", data={"motivo": motivo})
 
 
+def recusa_32602() -> MCPError:
+    """O que o SDK do servidor devolve para um requestState expirado ou adulterado."""
+    return MCPError(code=types.INVALID_PARAMS, message="Invalid or expired requestState", data={"reason": "invalid_request_state"})
+
+
 class HostFalso:
     """Responde como o servidor MCP, exceto no passo marcado para falhar."""
 
-    def __init__(self, falhar_em: str | None = None, motivo: str = MOTIVO_RESPOSTA_PERDIDA) -> None:
+    def __init__(self, falhar_em: str | None = None, erro: MCPError | None = None) -> None:
         self.falhar_em = falhar_em
-        self.motivo = motivo
+        self.erro = erro or falha(MOTIVO_RESPOSTA_PERDIDA)
         self.retries = 0
 
     def _talvez_falhar(self, passo: str) -> None:
         if passo == self.falhar_em:
-            raise falha(self.motivo)
+            raise self.erro
 
     async def listar_tools(self, t: trace.Trace) -> set[str]:
         self._talvez_falhar("listar_tools")
@@ -78,12 +83,12 @@ class TestFalhasNaPonte(unittest.IsolatedAsyncioTestCase):
         self.assertIn("pode ou nao ter sido criada", texto_do_status(tarefa))
 
     async def test_servidor_indisponivel_na_descoberta_falha_com_texto_proprio(self) -> None:
-        tarefa = await self.iniciar(HostFalso(falhar_em="listar_tools", motivo=MOTIVO_INDISPONIVEL))
+        tarefa = await self.iniciar(HostFalso(falhar_em="listar_tools", erro=falha(MOTIVO_INDISPONIVEL)))
         self.assertEqual(tarefa.estado, FAILED)
         self.assertIn("Servidor MCP indisponivel", texto_do_status(tarefa))
 
     async def test_indisponivel_no_retry_volta_a_pausa_intacta_e_depois_conclui(self) -> None:
-        host = HostFalso(falhar_em="retomar", motivo=MOTIVO_INDISPONIVEL)
+        host = HostFalso(falhar_em="retomar", erro=falha(MOTIVO_INDISPONIVEL))
         tarefa = await self.iniciar(host)
         self.assertEqual((tarefa.estado, texto_do_status(tarefa)), (INPUT_REQUIRED, "alternativas: sala-fusca, sala-mirante"))
         historico = list(tarefa.historico)
@@ -106,6 +111,20 @@ class TestFalhasNaPonte(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(tarefa.estado, FAILED)
         self.assertIn("pode ou nao ter sido criada", texto_do_status(tarefa))
         self.assertIsNone(tarefa.pendencia)
+
+    async def test_32602_no_retry_fala_de_estado_expirado(self) -> None:
+        host = HostFalso(falhar_em="retomar", erro=recusa_32602())
+        tarefa = await self.iniciar(host)
+        await Ponte(host).continuar(tarefa, "escolha=sala-fusca", tarefa.trace)
+        self.assertEqual(tarefa.estado, FAILED)
+        self.assertIn("o estado da reserva pode ter expirado", texto_do_status(tarefa))
+
+    async def test_32602_fora_do_retry_nao_fala_de_estado(self) -> None:
+        for passo in ("listar_tools", "versao_politica", "reservar"):
+            with self.subTest(passo=passo):
+                tarefa = await self.iniciar(HostFalso(falhar_em=passo, erro=recusa_32602()))
+                self.assertEqual(tarefa.estado, FAILED)
+                self.assertEqual(texto_do_status(tarefa), "Falha na comunicacao com o servidor MCP (codigo -32602)")
 
 
 if __name__ == "__main__":

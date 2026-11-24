@@ -275,6 +275,13 @@ Cada fase termina com o validador rodando contra os processos recém-iniciados. 
     - `Ponte._reservar` trata essas etapas com "nenhuma reserva foi feita".
     - `agente/tests/test_ponte.py` cobre, com um host falso, o texto de cada caso e a volta à pausa com o histórico intacto.
   - Regressão: Windows (validador 36/36, testes unitários, vazamento) e Linux `python:3.10-slim` (testes unitários, restart, expiração, 36/36, vazamento, `pip`), todos OK.
+- **Quarta revisão final (24/11/2026): "pronto para entrega", sem bug, regressão ou desvio do enunciado.** Dois ajustes aplicados:
+  - **Texto do `-32602`:** "o estado da reserva pode ter expirado" agora só aparece no retry, o único request que leva `requestState`. Na descoberta e no primeiro `tools/call`, o texto é neutro, com o código.
+    - `_protegido(no_retry=True)` substitui o antigo `repassar_indisponivel`.
+    - `test_ponte.py` ganhou os dois casos (18 testes no agente).
+  - **Nota no README** sobre o `ConnectionResetError [WinError 10054]` que o asyncio imprime no Windows quando um cliente HTTP fecha a conexão de forma abrupta. A entrega não aparece na pilha. Ele foi visto no teste manual com `Invoke-RestMethod`.
+  - As revisões convergiram. Esta só achou um texto num caso que o fluxo do avaliador não exercita. Entrega encerrada.
+  - Regressão: Windows (validador 36/36, testes unitários, vazamento) e Linux `python:3.10-slim` (testes unitários, restart, expiração, 36/36, vazamento, `pip`), todos OK.
 
 ---
 

@@ -54,12 +54,13 @@ def linha_de_alternativas(pergunta: Pergunta) -> str:
     return "alternativas: " + ", ".join(pergunta.alternativas)
 
 
-def _texto_de_falha(erro: MCPError) -> str:
+def _texto_de_falha(erro: MCPError, *, no_retry: bool) -> str:
     if servidor_indisponivel(erro):
         return "Servidor MCP indisponivel no momento. Envie o pedido de novo."
     if resposta_perdida(erro):
         return "A conexao com o servidor MCP caiu antes da resposta: a reserva pode ou nao ter sido criada."
-    if erro.error.code == types.INVALID_PARAMS:
+    if no_retry and erro.error.code == types.INVALID_PARAMS:
+        # So o retry leva requestState; fora dele, -32602 nao tem a ver com estado expirado.
         return "O servidor MCP recusou o pedido (codigo -32602): o estado da reserva pode ter expirado. Envie o pedido de novo."
     return f"Falha na comunicacao com o servidor MCP (codigo {erro.error.code})"
 
@@ -113,7 +114,7 @@ class Ponte:
         else:
             resposta = types.ElicitResult(action="accept", content={"sala": valor})
         try:
-            await self._protegido(tarefa, self._retomar(tarefa, pendencia, resposta, trace), repassar_indisponivel=True)
+            await self._protegido(tarefa, self._retomar(tarefa, pendencia, resposta, trace), no_retry=True)
         except ServidorMCPIndisponivel:
             # O retry nem chegou ao servidor e o requestState segue valido: a Task volta
             # a esperar a escolha, intacta, e o cliente pode tentar de novo.
@@ -148,22 +149,24 @@ class Ponte:
         tarefa.artefatos.append({"artifactId": novo_id("art"), "name": "reserva", "parts": [{"text": json.dumps(reserva)}]})
         tarefa.mudar(COMPLETED, f"Reserva {dados.get('reserva')} confirmada na {dados.get('sala')}.")
 
-    async def _protegido(self, tarefa: Tarefa, passo: Awaitable[None], repassar_indisponivel: bool = False) -> None:
+    async def _protegido(self, tarefa: Tarefa, passo: Awaitable[None], no_retry: bool = False) -> None:
         """Falha de protocolo ou de rede com o MCP termina a Task em FAILED, com texto fixo.
 
         O texto cru do erro fica so no stderr do agente: nunca vai para o cliente A2A.
-        Com `repassar_indisponivel`, a falha de conexao (o request nem saiu) sobe como
-        `ServidorMCPIndisponivel` para quem chamou decidir (a continuacao devolve a
-        Task a pausa). Resposta perdida nao volta a pausa: o servidor pode ter
-        executado o retry, entao a Task termina em FAILED dizendo isso.
+        Com `no_retry` (o passo e o retry do MRTR):
+        - a falha de conexao (o request nem saiu) sobe como `ServidorMCPIndisponivel`,
+          e a continuacao devolve a Task a pausa;
+        - um -32602 e lido como `requestState` recusado (expirado ou invalido).
+        Resposta perdida nao volta a pausa: o servidor pode ter executado o retry,
+        entao a Task termina em FAILED dizendo isso.
         """
         try:
             await passo
         except MCPError as e:
             print(f"a2a: {tarefa.id} erro MCP {e.error.code}: {e.error.message}", file=sys.stderr, flush=True)
-            if repassar_indisponivel and servidor_indisponivel(e):
+            if no_retry and servidor_indisponivel(e):
                 raise ServidorMCPIndisponivel from e
-            tarefa.mudar(FAILED, _texto_de_falha(e))
+            tarefa.mudar(FAILED, _texto_de_falha(e, no_retry=no_retry))
         except RespostaInesperada as e:
             print(f"a2a: {tarefa.id} resposta inesperada do MCP: {e}", file=sys.stderr, flush=True)
             tarefa.mudar(FAILED, "O servidor MCP respondeu fora do contrato da reserva")
