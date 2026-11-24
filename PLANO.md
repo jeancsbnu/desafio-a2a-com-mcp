@@ -4,7 +4,7 @@
 
 | Item | Escolha | Motivo |
 |---|---|---|
-| Linguagem | Python 3.12 (com `uv`) | Os wires em `exemplos/wire/` foram capturados com o SDK Python (`__main__:escolha_de_sala`, schemas com `title` do pydantic, `requestState` `v1.…`) |
+| Linguagem | Python 3.10+ (com `uv`; testado em 3.10 e 3.12) | Os wires em `exemplos/wire/` foram capturados com o SDK Python (`__main__:escolha_de_sala`, schemas com `title` do pydantic, `requestState` `v1.…`) |
 | SDK MCP | `mcp==2.3.0` (v2, revisão `2026-07-28`) | Tem MRTR de primeira classe e utilitário de integridade do `requestState` |
 | Servidor HTTP | Starlette + uvicorn (já vêm com o `mcp`; travar versão explicitamente) | Mesmo stack nos dois processos |
 | A2A | JSON-RPC 2.0 escrito à mão em Starlette (só `SendMessage`, `GetTask` e o card) | Controle total da máquina de estados, das mensagens exatas e do formato dos ids (`task-…`, `ctx-…`, `msg-…`, `art-…`, como no wire). Alternativa: `a2a-sdk==1.3.0` |
@@ -259,6 +259,14 @@ Cada fase termina com o validador rodando contra os processos recém-iniciados. 
   - **Resultados:**
     - Windows (3.12): 36/36, 21 testes unitários, vazamento e fumaça OK; cenário do MCP fora no retry OK.
     - Linux `python:3.10-slim`: testes unitários, restart, expiração, 36/36 no validador, vazamento e instalação via `pip` OK.
+- **Segunda revisão final (23/11/2026): "pronto para entrega", com dois achados de baixa gravidade, corrigidos:**
+  - **Corte da conexão no meio do corpo da resposta matava a sessão do agente.** `_handle_json_response` do SDK só trata `StreamError`, e o corte é `RemoteProtocolError`.
+    - `FalhaDeConexaoComoErro` agora lê o corpo JSON inteiro antes de entregá-lo ao SDK.
+    - `agente/tests/test_transporte.py` usa um servidor falso que corta a resposta: a chamada dá `MCPError` e a seguinte funciona. Com o transporte antigo, o teste falha.
+  - **"Indisponível" incluía falhas em que o request já tinha saído.** Agora há dois motivos:
+    - `MOTIVO_INDISPONIVEL` (`ConnectError`, `ConnectTimeout`, `PoolTimeout`): a continuação volta à pausa, como antes.
+    - `MOTIVO_RESPOSTA_PERDIDA` (timeout de leitura, corte): `FAILED` dizendo que a reserva pode ou não ter sido criada, sem voltar à pausa.
+  - Regressão no Windows: validador 36/36, testes unitários dos dois processos, vazamento e o cenário do MCP fora no retry, todos OK.
 
 ---
 

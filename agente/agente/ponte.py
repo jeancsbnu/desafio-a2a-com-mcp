@@ -32,6 +32,7 @@ from agente.host_mcp import (
     Pergunta,
     RespostaInesperada,
     Resultado,
+    resposta_perdida,
     servidor_indisponivel,
 )
 from agente.tarefas import CANCELED, COMPLETED, FAILED, INPUT_REQUIRED, WORKING, Pendencia, Tarefa, novo_id
@@ -56,6 +57,8 @@ def linha_de_alternativas(pergunta: Pergunta) -> str:
 def _texto_de_falha(erro: MCPError) -> str:
     if servidor_indisponivel(erro):
         return "Servidor MCP indisponivel no momento. Envie o pedido de novo."
+    if resposta_perdida(erro):
+        return "A conexao com o servidor MCP caiu antes da resposta: a reserva pode ou nao ter sido criada."
     if erro.error.code == types.INVALID_PARAMS:
         return "O servidor MCP recusou o pedido (codigo -32602): o estado da reserva pode ter expirado. Envie o pedido de novo."
     return f"Falha na comunicacao com o servidor MCP (codigo {erro.error.code})"
@@ -140,8 +143,10 @@ class Ponte:
         """Falha de protocolo ou de rede com o MCP termina a Task em FAILED, com texto fixo.
 
         O texto cru do erro fica so no stderr do agente: nunca vai para o cliente A2A.
-        Com `repassar_indisponivel`, a falha de rede sobe como `ServidorMCPIndisponivel`
-        para quem chamou decidir (a continuacao devolve a Task a pausa).
+        Com `repassar_indisponivel`, a falha de conexao (o request nem saiu) sobe como
+        `ServidorMCPIndisponivel` para quem chamou decidir (a continuacao devolve a
+        Task a pausa). Resposta perdida nao volta a pausa: o servidor pode ter
+        executado o retry, entao a Task termina em FAILED dizendo isso.
         """
         try:
             await passo

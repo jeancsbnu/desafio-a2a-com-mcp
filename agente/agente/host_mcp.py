@@ -27,24 +27,45 @@ TOOL_RESERVA = "reservar_sala"
 RESOURCE_POLITICA = "politica://uso"
 TIMEOUT_HTTP = 30.0
 
-# Marca, no `data` do erro, a falha de rede que `FalhaDeConexaoComoErro` converte.
+# Marcam, no `data` do erro, as duas falhas de rede que `FalhaDeConexaoComoErro` converte.
 MOTIVO_INDISPONIVEL = "servidor_mcp_indisponivel"
+MOTIVO_RESPOSTA_PERDIDA = "resposta_do_servidor_mcp_perdida"
+
+# Falhas em que o request com certeza nao chegou ao servidor.
+_ANTES_DE_ENVIAR = (httpx2.ConnectError, httpx2.ConnectTimeout, httpx2.PoolTimeout)
+
+# O corpo ja vem decodificado depois de lido; esses cabecalhos deixam de valer.
+_CABECALHOS_DO_CORPO_ORIGINAL = {"content-encoding", "content-length", "transfer-encoding"}
+
+
+def _motivo(erro: MCPError) -> str | None:
+    return erro.error.data.get("motivo") if isinstance(erro.error.data, dict) else None
 
 
 def servidor_indisponivel(erro: MCPError) -> bool:
-    """O request nem chegou ao servidor MCP (rede, servidor fora do ar, timeout)."""
-    return isinstance(erro.error.data, dict) and erro.error.data.get("motivo") == MOTIVO_INDISPONIVEL
+    """O request nem chegou ao servidor MCP: conexao recusada ou sem conectar a tempo."""
+    return _motivo(erro) == MOTIVO_INDISPONIVEL
+
+
+def resposta_perdida(erro: MCPError) -> bool:
+    """O request saiu, mas a resposta nao chegou inteira: o servidor pode ter executado."""
+    return _motivo(erro) == MOTIVO_RESPOSTA_PERDIDA
 
 
 class FalhaDeConexaoComoErro(httpx2.AsyncBaseTransport):
     """Transforma falha de rede numa resposta 503 com erro JSON-RPC.
 
-    Limitacao do SDK 2.3.0: uma excecao de rede dentro do POST derruba o task
-    group do `streamable_http_client` (`mcp/client/streamable_http.py`,
-    `post_writer` -> `_run_request_post`), cancela quem chamou e mata a sessao
-    para sempre. Ja uma resposta >= 400 com erro JSON-RPC no corpo vira `MCPError`
-    so daquela chamada (`_handle_post_request`). Assim, com o servidor MCP fora
-    do ar ou reiniciando, so o request em curso falha e o agente segue vivo.
+    Limitacao do SDK 2.3.0: uma excecao de rede no POST derruba o task group do
+    `streamable_http_client`, cancela quem chamou e mata a sessao para sempre.
+    Isso vale tanto antes da resposta (`post_writer` -> `_run_request_post`)
+    quanto no meio do corpo, porque `_handle_json_response` so trata
+    `StreamError`, e um corte de conexao e `RemoteProtocolError`. Ja uma resposta
+    >= 400 com erro JSON-RPC no corpo vira `MCPError` so daquela chamada
+    (`_handle_post_request`).
+
+    Por isso o corpo JSON e lido inteiro aqui dentro, antes de chegar ao SDK. As
+    respostas do servidor sao JSON pequeno, nunca streaming. Qualquer falha de rede
+    vira 503, e o `data.motivo` separa "nem chegou" de "resposta perdida".
     """
 
     def __init__(self, interno: httpx2.AsyncBaseTransport) -> None:
@@ -52,17 +73,36 @@ class FalhaDeConexaoComoErro(httpx2.AsyncBaseTransport):
 
     async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
         try:
-            return await self._interno.handle_async_request(request)
+            resposta = await self._interno.handle_async_request(request)
         except httpx2.TransportError as e:
-            erro = {
-                "code": types.INTERNAL_ERROR,
-                "message": f"Servidor MCP indisponivel ({type(e).__name__})",
-                "data": {"motivo": MOTIVO_INDISPONIVEL},
-            }
-            return httpx2.Response(503, json={"jsonrpc": "2.0", "id": None, "error": erro}, request=request)
+            return _erro_de_rede(request, e)
+        if not resposta.headers.get("content-type", "").lower().startswith("application/json"):
+            return resposta
+        try:
+            corpo = await resposta.aread()
+        except httpx2.TransportError as e:
+            await resposta.aclose()
+            return _erro_de_rede(request, e)
+        cabecalhos = [(k, v) for k, v in resposta.headers.multi_items() if k.lower() not in _CABECALHOS_DO_CORPO_ORIGINAL]
+        return httpx2.Response(
+            resposta.status_code, headers=cabecalhos, content=corpo, request=request, extensions=resposta.extensions
+        )
 
     async def aclose(self) -> None:
         await self._interno.aclose()
+
+
+def _erro_de_rede(request: httpx2.Request, erro: httpx2.TransportError) -> httpx2.Response:
+    if isinstance(erro, _ANTES_DE_ENVIAR):
+        mensagem, motivo = "Servidor MCP indisponivel", MOTIVO_INDISPONIVEL
+    else:
+        mensagem, motivo = "Conexao com o servidor MCP caiu antes da resposta completa", MOTIVO_RESPOSTA_PERDIDA
+    corpo = {
+        "jsonrpc": "2.0",
+        "id": None,
+        "error": {"code": types.INTERNAL_ERROR, "message": f"{mensagem} ({type(erro).__name__})", "data": {"motivo": motivo}},
+    }
+    return httpx2.Response(503, json=corpo, request=request)
 
 
 class SessaoSoFormulario(ClientSession):
